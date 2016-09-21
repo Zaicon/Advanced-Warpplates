@@ -16,22 +16,18 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Terraria;
 using TShockAPI;
 using TShockAPI.DB;
 using MySql.Data.MySqlClient;
-using System.Threading;
-using System.ComponentModel;
-using System.IO;
 using System.Data;
-using System.Drawing;
 using System.Linq;
 
 namespace PluginTemplate
 {
-    public class WarpplateManager
+	public class WarpplateManager
     {
         public List<Warpplate> Warpplates = new List<Warpplate>();
 
