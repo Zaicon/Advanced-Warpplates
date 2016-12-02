@@ -9,472 +9,374 @@ using System.Reflection;
 using Terraria;
 using TerrariaApi.Server;
 using TShockAPI;
+using TShockAPI.Hooks;
 
-namespace PluginTemplate
+namespace AdvancedWarpplate
 {
-    [ApiVersion(1, 25)]
-    public class WarpplatePlugin : TerrariaPlugin
-    {
-        public static List<Player> Players = new List<Player>();
-        public static WarpplateManager Warpplates;
+	[ApiVersion(1, 26)]
+	public class WarpplatePlugin : TerrariaPlugin
+	{
+		#region Plugin Information
+		public override string Name
+		{
+			get { return "Warpplate"; }
+		}
 
-        public override string Name
-        {
-            get { return "Warpplate"; }
-        }
-        public override string Author
-        {
-            get { return "Maintained by Zaicon"; }
-        }
-        public override string Description
-        {
-            get { return "Warpplate"; }
-        }
-        public override Version Version
-        {
-            get { return Assembly.GetExecutingAssembly().GetName().Version; }
-        }
+		public override string Author
+		{
+			get { return "Maintained by Zaicon"; }
+		}
 
-        public override void Initialize()
-        {
-            Warpplates = new WarpplateManager(TShock.DB);
-            ServerApi.Hooks.GamePostInitialize.Register(this, OnPostInit);
-            ServerApi.Hooks.GameInitialize.Register(this, OnInitialize);
-            ServerApi.Hooks.GameUpdate.Register(this, OnUpdate);
-            ServerApi.Hooks.NetGreetPlayer.Register(this, OnGreetPlayer);
-            ServerApi.Hooks.ServerLeave.Register(this, OnLeave);
-        }
+		public override string Description
+		{
+			get { return "Warpplate"; }
+		}
 
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing)
-            {
-                ServerApi.Hooks.GamePostInitialize.Deregister(this, OnPostInit);
-                ServerApi.Hooks.GameInitialize.Deregister(this, OnInitialize);
-                ServerApi.Hooks.GameUpdate.Deregister(this, OnUpdate);
-                ServerApi.Hooks.NetGreetPlayer.Deregister(this, OnGreetPlayer);
-                ServerApi.Hooks.ServerLeave.Deregister(this, OnLeave);
-            }
+		public override Version Version
+		{
+			get { return Assembly.GetExecutingAssembly().GetName().Version; }
+		}
+		#endregion
 
-            base.Dispose(disposing);
-        }
+		#region Initialize/Dispose
+		public override void Initialize()
+		{
+			ServerApi.Hooks.GameInitialize.Register(this, OnInitialize);
+			ServerApi.Hooks.GameUpdate.Register(this, OnUpdate);
+			ServerApi.Hooks.NetGreetPlayer.Register(this, OnGreetPlayer);
+			GeneralHooks.ReloadEvent += ReloadWarp;
+		}
 
-        private void OnPostInit(EventArgs args)
-        {
-            Warpplates.ReloadAllWarpplates();
-        }
+		protected override void Dispose(bool disposing)
+		{
+			if (disposing)
+			{
+				ServerApi.Hooks.GameInitialize.Deregister(this, OnInitialize);
+				ServerApi.Hooks.GameUpdate.Deregister(this, OnUpdate);
+				ServerApi.Hooks.NetGreetPlayer.Deregister(this, OnGreetPlayer);
+				GeneralHooks.ReloadEvent -= ReloadWarp;
+			}
 
-        public WarpplatePlugin(Main game)
-            : base(game)
-        {
-            Order = 1;
-        }
+			base.Dispose(disposing);
+		}
+		#endregion
 
-        public void OnInitialize(EventArgs args)
-        {
-            Commands.ChatCommands.Add(new Command("warpplate.set", setwarpplate, "swp"));
-            Commands.ChatCommands.Add(new Command("warpplate.set", delwarpplate, "dwp"));
-            Commands.ChatCommands.Add(new Command("warpplate.set", warpplatedest, "swpd"));
-            Commands.ChatCommands.Add(new Command("warpplate.set", removeplatedest, "rwpd"));
-            Commands.ChatCommands.Add(new Command("warpplate.set", wpi, "wpi"));
-            Commands.ChatCommands.Add(new Command("warpplate.use", warpallow, "wpa"));
-            Commands.ChatCommands.Add(new Command("warpplate.set", reloadwarp, "rwp"));
-            Commands.ChatCommands.Add(new Command("warpplate.set", setwarpplatedelay, "swpdl"));
-            Commands.ChatCommands.Add(new Command("warpplate.set", setwarpplatewidth, "swpw"));
-            Commands.ChatCommands.Add(new Command("warpplate.set", setwarpplateheight, "swph"));
-            Commands.ChatCommands.Add(new Command("warpplate.set", setwarpplatesize, "swps"));
-            Commands.ChatCommands.Add(new Command("warpplate.set", setwarpplatelabel, "swpl"));
-        }
-        
-        public void OnGreetPlayer(GreetPlayerEventArgs args)
-        {
-            lock (Players)
-                Players.Add(new Player(args.Who));
-        }
+		public WarpplatePlugin(Main game)
+			: base(game)
+		{
+			Order = 1;
+		}
 
-        public class Player
-        {
-            public int Index { get; set; }
-            public TSPlayer TSPlayer { get { return TShock.Players[Index]; } }
-            public int warpplatetime { get; set; }
-            public bool warpplateuse { get; set; }
-            public bool warped { get; set; }
-            public int warpcooldown { get; set; }
-            public Player(int index)
-            {
-                Index = index;
-                warpplatetime = 0;
-                warpplateuse = true;
-                warped = false;
-                warpcooldown = 0;
-            }
-        }
+		private const string dataString = "AdvancedWarpplates.PlayerInfo";
+		private DateTime lastCheck = DateTime.UtcNow;
 
-        private DateTime LastCheck = DateTime.UtcNow;
+		#region Hooks
+		public void OnInitialize(EventArgs args)
+		{
+			DB.Connect();
 
-        private void OnUpdate(EventArgs args)
-        {
-            if ((DateTime.UtcNow - LastCheck).TotalSeconds >= 1)
-            {
-                LastCheck = DateTime.UtcNow;
-                lock (Players)
-                    foreach (Player player in Players)
-                    {
-                        if (player != null && player.TSPlayer != null)
-                        {
-                            if (player.TSPlayer.Group.HasPermission("warpplate.use") && player.warpplateuse)
-                            {
-                                if (player.warpcooldown != 0)
-                                {
-                                    player.warpcooldown--;
-                                    continue;
-                                }
-                                string region = Warpplates.InAreaWarpplateName(player.TSPlayer.TileX, player.TSPlayer.TileY);
-                                if (region == null || region == "")
-                                {
-                                    player.warpplatetime = 0;
-                                    player.warped = false;
-                                }
-                                else
-                                {
-                                    if (player.warped)
-                                        continue;
-                                    var warpplateinfo = Warpplates.FindWarpplate(region);
-                                    var warp = Warpplates.FindWarpplate(warpplateinfo.WarpDest);
-                                    if (warp != null)
-                                    {
-                                        player.warpplatetime++;
-                                        if ((warpplateinfo.Delay - player.warpplatetime) > 0)
-                                            player.TSPlayer.SendInfoMessage("You will be warped to " + Warpplates.GetLabel(warpplateinfo.WarpDest) + " in " + (warpplateinfo.Delay - player.warpplatetime) + " seconds");
-                                        else
-                                        {
-                                            if (player.TSPlayer.Teleport((int)(warp.WarpplatePos.X * 16) + 2, (int)(warp.WarpplatePos.Y*16) + 3))
-                                                player.TSPlayer.SendInfoMessage("You have been warped to " + Warpplates.GetLabel(warpplateinfo.WarpDest) + " via a Warpplate");
-                                            player.warpplatetime = 0;
-                                            player.warped = true;
-                                            player.warpcooldown = 3;
-                                        }                                        
-                                    }
-                                }
-                            }
-                        }
-                    }
-            }
-        }
+			Commands.ChatCommands.Add(new Command("warpplate.set", WarpplateCommands, "warpplate"));
+			Commands.ChatCommands.Add(new Command("warpplate.use", ToggleWarping, "togglewarpplates"));
+		}
 
-        private void OnLeave(LeaveEventArgs args)
-        {
-            lock (Players)
-            {
-                for (int i = 0; i < Players.Count; i++)
-                {
-                    if (Players[i].Index == args.Who)
-                    {
-                        Players.RemoveAt(i);
-                        break; //Found the player, break.
-                    }
-                }
-            }
-        }
+		public void OnGreetPlayer(GreetPlayerEventArgs args)
+		{
+			TSPlayer player = TShock.Players[args.Who];
 
-        private static int GetPlayerIndex(int ply)
-        {
-            lock (Players)
-            {
-                int index = -1;
-                for (int i = 0; i < Players.Count; i++)
-                {
-                    if (Players[i].Index == ply)
-                        index = i;
-                }
-                return index;
-            }
-        }
+			//Ignore non-players
+			if (player == null || !player.RealPlayer)
+				return;
 
-        private static void setwarpplatedelay(CommandArgs args)
-        {
-            string region = "";
-            if (args.Parameters.Count == 2)
-                region = args.Parameters[0];
-            else if (args.Parameters.Count == 1)
-                region = Warpplates.InAreaWarpplateName(args.Player.TileX, args.Player.TileY);
-            else {
-                args.Player.SendErrorMessage("Invalid syntax! Proper syntax: /swpdl [<warpplate name>] <delay in seconds>");
-                args.Player.SendErrorMessage("Set 0 for immediate warp");
-                return;
-            }
-            Warpplate wp = Warpplates.FindWarpplate(region);
-            if (wp == null)
-            {
-                args.Player.SendErrorMessage("No such warpplate");
-                return;
-            }
-            int Delay;
-            if (Int32.TryParse(args.Parameters[args.Parameters.Count - 1], out Delay))
-            {
-                wp.Delay = Delay + 1;
-                if (Warpplates.UpdateWarpplate(wp.Name))
-                    args.Player.SendSuccessMessage("Set delay of {0} to {1} seconds", wp.Name, Delay);
-                else
-                    args.Player.SendErrorMessage("Something went wrong");
-            }
-            else
-                args.Player.SendErrorMessage("Bad number specified");
-        }
+			player.SetData(dataString, new PlayerInfo());
+		}
 
-        private static void setwarpplatewidth(CommandArgs args)
-        {
-            string region = "";
-            if (args.Parameters.Count == 2)
-                region = args.Parameters[0];
-            else if (args.Parameters.Count == 1)
-                region = Warpplates.InAreaWarpplateName(args.Player.TileX, args.Player.TileY);
-            else
-            {
-                args.Player.SendErrorMessage("Invalid syntax! Proper syntax: /swpw [<warpplate name>] <width in blocks>");
-                return;
-            }
-            Warpplate wp = Warpplates.FindWarpplate(region);
-            if (wp == null)
-            {
-                args.Player.SendErrorMessage("No such warpplate");
-                return;
-            }
-            int Width;
-            if (Int32.TryParse(args.Parameters[args.Parameters.Count - 1], out Width))
-            {
-                Rectangle r;
-                r = wp.Area;
-                r.Width = Width; 
-                wp.Area = r;
-                if (Warpplates.UpdateWarpplate(wp.Name))
-                    args.Player.SendSuccessMessage("Set width of {0} to {1} blocks", wp.Name, Width);
-                else
-                    args.Player.SendErrorMessage("Something went wrong");
-            }
-            else
-                args.Player.SendErrorMessage("Invalid number: " + args.Parameters[args.Parameters.Count - 1]);
-        }
+		private void OnUpdate(EventArgs args)
+		{
+			//Only update every second.
+			if ((DateTime.UtcNow - lastCheck).TotalSeconds >= 1)
+			{
+				lastCheck = DateTime.UtcNow;
 
-        private static void setwarpplatelabel(CommandArgs args)
-        {
-            string region = "";
-            if (args.Parameters.Count == 2)
-                region = args.Parameters[0];
-            else if (args.Parameters.Count == 1)
-                region = Warpplates.InAreaWarpplateName(args.Player.TileX, args.Player.TileY);
-            else
-            {
-                args.Player.SendErrorMessage("Invalid syntax! Proper syntax: /swpl [<warpplate name>] <label>");
-				args.Player.SendErrorMessage("Type /swpl [<warpplate name>] \"\" to set label to default (warpplate name)");
-                return;
-            }
-            Warpplate wp = Warpplates.FindWarpplate(region);
-            if (wp == null)
-            {
-                args.Player.SendErrorMessage("No such warpplate");
-                return;
-            }
-            string label = args.Parameters[args.Parameters.Count - 1];
-            wp.Label = label;
-            if (Warpplates.UpdateWarpplate(wp.Name))
-                args.Player.SendSuccessMessage(String.Format("Set label of {0} to {1}", wp.Name, D(wp)));
-            else
-                args.Player.SendErrorMessage("Something went wrong");
-        }
+				foreach (TSPlayer player in TShock.Players)
+				{
+					if (player == null || !player.RealPlayer || !player.HasPermission("warpplate.use"))
+						continue;
 
-        private static void setwarpplateheight(CommandArgs args)
-        {
-            string region = "";
-            if (args.Parameters.Count == 2)
-                region = args.Parameters[0];
-            else if (args.Parameters.Count == 1)
-                region = Warpplates.InAreaWarpplateName(args.Player.TileX, args.Player.TileY);
-            else
-            {
-                args.Player.SendErrorMessage("Invalid syntax! Proper syntax: /swph [<warpplate name>] <height in blocks>");
-                return;
-            }
-            Warpplate wp = Warpplates.FindWarpplate(region);
-            if (wp == null)
-            {
-                args.Player.SendErrorMessage("No such warpplate");
-                return;
-            }
-            int Height;
-            if (Int32.TryParse(args.Parameters[args.Parameters.Count - 1], out Height))
-            {
-                Rectangle r;
-                r = wp.Area;
-                r.Height = Height;
-                wp.Area = r;
-                Warpplates.UpdateWarpplate(wp.Name);
-                if (Warpplates.UpdateWarpplate(wp.Name))
-                    args.Player.SendSuccessMessage("Set height of {0} to {1} blocks", wp.Name, Height);
-                else
-                    args.Player.SendErrorMessage("Something went wrong");
-            }
-            else
-                args.Player.SendErrorMessage("Bad number specified");
-        }
+					PlayerInfo playerInfo = player.GetData<PlayerInfo>(dataString);
 
-        private static void setwarpplatesize(CommandArgs args)
-        {
-            string region = "";
-            if (args.Parameters.Count == 3)
-                region = args.Parameters[0];
-            else if (args.Parameters.Count == 2)
-                region = Warpplates.InAreaWarpplateName(args.Player.TileX, args.Player.TileY);
-            else
-            {
-                args.Player.SendErrorMessage("Invalid syntax! Proper syntax: /swps [<warpplate name>] <width> <height>");
-                return;
-            }
-            Warpplate wp = Warpplates.FindWarpplate(region);
-            if (wp == null)
-            {
-                args.Player.SendErrorMessage("No such warpplate");
-                return;
-            }
-            int Width, Height;
-            if (Int32.TryParse(args.Parameters[args.Parameters.Count - 2], out Width) &&
-                Int32.TryParse(args.Parameters[args.Parameters.Count - 1], out Height))
-            {
-                Rectangle r;
-                r = wp.Area;
-                r.Width = Width;
-                r.Height = Height;
-                wp.Area = r;
-                Warpplates.UpdateWarpplate(wp.Name);
-                if (Warpplates.UpdateWarpplate(wp.Name))
-                    args.Player.SendSuccessMessage("Set size of {0} to {1}x{2}", wp.Name, Width, Height);
-                else
-                    args.Player.SendErrorMessage("Something went wrong");
-            }
-            else
-                args.Player.SendErrorMessage("Bad number specified");
-        }
+					//If player doesn't want to be warped, ignore this player
+					if (!playerInfo.WarpingEnabled)
+						continue;
 
-        private static void setwarpplate(CommandArgs args)
-        {
-            if (args.Parameters.Count < 1)
-            {
-                args.Player.SendErrorMessage("Invalid syntax! Proper syntax: /swp <warpplate name>");
-                return;
-            }
-            if (Warpplates.InAreaWarpplateName(args.Player.TileX, args.Player.TileY) != null)
-            {
-                args.Player.SendErrorMessage("There is already a Warpplate located here. Find a new place");
-                return;
-            }
-            string regionName = String.Join(" ", args.Parameters);
-            var x = ((((int)args.Player.X) / 16) - 1);
-            var y = (((int)args.Player.Y) / 16);
-            var width = 2;
-            var height = 3;
-            if (Warpplates.AddWarpplate(x, y, width, height, regionName, "", Main.worldID.ToString()))
-            {
-                args.Player.SendSuccessMessage("Warpplate created: " + regionName);
-                //args.Player.SendMessage("Now Set The Warpplate Destination By Using /swpd", Color.Yellow);
-                Warpplates.ReloadAllWarpplates();
-            }
-            else
-            {
-                args.Player.SendErrorMessage("Warpplate already created: " + regionName + " already exists");
-            }
-        }
+					//If player last warped within 3 seconds, ignore this player
+					if (playerInfo.Cooldown > 0)
+					{
+						playerInfo.Cooldown--;
+						player.SetData(dataString, playerInfo);
+						continue;
+					}
 
-        private static void delwarpplate(CommandArgs args)
-        {
-            if (args.Parameters.Count < 1)
-            {
-                args.Player.SendErrorMessage("Invalid syntax! Proper syntax: /dwp <warpplate name>");
-                return;
-            }
-            string regionName = String.Join(" ", args.Parameters);
-            if (Warpplates.DeleteWarpplate(regionName))
-            {
-                args.Player.SendInfoMessage("Deleted Warpplate: " + regionName);
-                Warpplates.ReloadAllWarpplates();
-            }
-            else
-                args.Player.SendErrorMessage("Could not find specified Warpplate");
-        }
+					//If player is not near a warpplate, ignore this player
+					Warpplate fromWarpPlate = Utils.GetNearbyWarpplates(player.TileX, player.TileY);
+					if (fromWarpPlate == null)
+						continue;
 
-        private static void warpplatedest(CommandArgs args)
-        {
-            if (args.Parameters.Count < 2)
-            {
-                args.Player.SendErrorMessage("Invalid syntax! Proper syntax: /swpd <Warpplate Name> <Name Of Destination Warpplate>");
-                return;
-            }
-            if (Warpplates.adddestination(args.Parameters[0], args.Parameters[1]))
-            {
-                args.Player.SendInfoMessage("Destination " + args.Parameters[1] + " added to Warpplate " + args.Parameters[0]);
-                Warpplates.ReloadAllWarpplates();
-            }
-            else
-                args.Player.SendErrorMessage("Could not find specified Warpplate or destination");
-        }
+					//If player is near a warpplate but that warpplate has no destination, ignore this player
+					if (string.IsNullOrEmpty(fromWarpPlate.DestinationWarpplate))
+						continue;
 
-        private static void removeplatedest(CommandArgs args)
-        {
-            if (args.Parameters.Count < 1)
-            {
-                args.Player.SendErrorMessage("Invalid syntax! Proper syntax: /rwpd <Warpplate Name>");
-                return;
-            }
-            if (Warpplates.removedestination(args.Parameters[0]))
-            {
-                args.Player.SendInfoMessage("Removed Destination From Warpplate " + args.Parameters[0]);
-                Warpplates.ReloadAllWarpplates();
-            }
-            else
-                args.Player.SendErrorMessage("Could not find specified Warpplate or destination");
-        }
+					Warpplate toWarpPlate = Utils.GetWarpplateByName(fromWarpPlate.DestinationWarpplate);
 
-        private static string S(string s)
-        {
-            return String.IsNullOrEmpty(s) ? "(none)" : s;
-        }
+					//If player is near a warpplate but hasn't been near it for Delay seconds, ignore this player
+					if ((fromWarpPlate.Delay - playerInfo.TimeStandingOnWarp) > 0)
+					{
+						playerInfo.TimeStandingOnWarp++;
+						player.SetData(dataString, playerInfo);
+						continue;
+					}
 
-        private static string D(Warpplate wp)
-        {
-            return String.IsNullOrEmpty(wp.Label) ? wp.Name + " (default)" : wp.Label;
-        }
+					//Finally, teleport player if all previous conditions were met
+					if (player.Teleport((int)(toWarpPlate.Area.X * 16) + 2, (int)(toWarpPlate.Area.Y * 16) + 3))
+						player.SendInfoMessage("You have been warped to " + toWarpPlate.Name + " via a warpplate");
 
-        private static void wpi(CommandArgs args)
-        {
-            string region = "";
-            if (args.Parameters.Count > 0)
-                region = String.Join(" ", args.Parameters);
-            else
-                region = Warpplates.InAreaWarpplateName(args.Player.TileX, args.Player.TileY);
-            var warpplateinfo = Warpplates.FindWarpplate(region);
-            if (warpplateinfo == null)
-                args.Player.SendErrorMessage("No such Warpplate");
-            else
-            {
-                args.Player.SendMessage("Name: " + warpplateinfo.Name + "; Label: " + D(warpplateinfo) 
-                    + "Destination: " + S(warpplateinfo.WarpDest) + ";", Color.HotPink);
-                args.Player.SendMessage("X: " + warpplateinfo.WarpplatePos.X + "; Y: " + warpplateinfo.WarpplatePos.Y + 
-                    "; W: " + warpplateinfo.Area.Width + "; H: " + warpplateinfo.Area.Height + "; Delay: " + (warpplateinfo.Delay - 1), Color.HotPink);
-            }
-        }
+					//Reset info
+					playerInfo.TimeStandingOnWarp = 0;
+					playerInfo.Cooldown = 3; //TODO: Config!
+					player.SetData(dataString, playerInfo);
+				}
+			}
+		}
+		#endregion
 
-        private static void reloadwarp(CommandArgs args)
-        {
-            Warpplates.ReloadAllWarpplates();
-        }
+		private void WarpplateCommands(CommandArgs args)
+		{
+			TSPlayer player = args.Player;
 
-        private static void warpallow(CommandArgs args)
-        {
-            if (!Players[GetPlayerIndex(args.Player.Index)].warpplateuse)
-                args.Player.SendSuccessMessage("Warpplates are now turned on for you");
-            if (Players[GetPlayerIndex(args.Player.Index)].warpplateuse)
-                args.Player.SendSuccessMessage("Warpplates are now turned off for you");
-            Players[GetPlayerIndex(args.Player.Index)].warpplateuse = !Players[GetPlayerIndex(args.Player.Index)].warpplateuse;
-        }
+			if (args.Parameters.Count < 1 || args.Parameters.Count > 3)
+			{
+				sendInvalidSyntaxError();
+				return;
+			}
 
-    }
+			string baseCmd = args.Parameters[0].ToLower();
+			string specifier = args.Silent ? TShock.Config.CommandSilentSpecifier : TShock.Config.CommandSpecifier;
+
+			switch (baseCmd)
+			{
+				//warpplate add <name>
+				case "add":
+					if (args.Parameters.Count < 2)
+					{
+						args.Player.SendErrorMessage($"Invalid syntax: {specifier}warpplate add <warpplate name>");
+						return;
+					}
+					if (Utils.GetNearbyWarpplates(args.Player.TileX, args.Player.TileY) != null)
+					{
+						args.Player.SendErrorMessage($"There is already a warpplate here!");
+						return;
+					}
+					Warpplate newWarpplate = new Warpplate(string.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1)), args.Player.TileX, args.Player.TileY);
+					DB.AddWarpplate(newWarpplate);
+					args.Player.SendSuccessMessage($"Added warpplate {string.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1))} at your current location.");
+					break;
+
+				//warpplate del <name>
+				case "del":
+				case "delete":
+					if (args.Parameters.Count < 2)
+					{
+						args.Player.SendErrorMessage($"Invalid syntax: {specifier}warpplate del <warpplate name>");
+						return;
+					}
+					Warpplate warpplate = Utils.GetWarpplateByName(string.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1)));
+					if (warpplate == null)
+					{
+						args.Player.SendErrorMessage($"There is no warpplate by the name of {string.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1))}!");
+						return;
+					}
+					DB.RemoveWarpplate(warpplate);
+					args.Player.SendSuccessMessage($"Removed warpplate {string.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1))}.");
+					break;
+
+				//warpplate mod <name> <type> <value>
+				case "mod":
+				case "modify":
+					if (args.Parameters.Count != 4)
+					{
+						args.Player.SendErrorMessage($"Invalid syntax: {specifier}warpplate mod <name> <type> <value>");
+						return;
+					}
+					//Throwing this to separate method for cleaner code
+					processModification();
+					break;
+
+				//warpplate info <name>
+				case "info":
+					if (args.Parameters.Count < 2)
+					{
+						args.Player.SendErrorMessage($"Invalid syntax: {specifier}warpplate del <warpplate name>");
+						return;
+					}
+					Warpplate warpplateInfo = Utils.GetWarpplateByName(string.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1)));
+					if (warpplateInfo == null)
+					{
+						args.Player.SendErrorMessage($"There is no warpplate by the name of {string.Join(" ", args.Parameters.GetRange(1, args.Parameters.Count - 1))}!");
+						return;
+					}
+					args.Player.SendInfoMessage($"Warpplate Name: {warpplateInfo.Name} ({warpplateInfo.Area.X}, {warpplateInfo.Area.Y})");
+					args.Player.SendInfoMessage($"Destination Warpplate Name: {warpplateInfo.DestinationWarpplate}");
+					args.Player.SendInfoMessage($"Delay: {warpplateInfo.Delay} | Width: {warpplateInfo.Area.Width} | Height: {warpplateInfo.Area}");
+					break;
+				default:
+					sendInvalidSyntaxError();
+					break;
+			}
+
+			//Sends paginated list of commands.
+			void sendInvalidSyntaxError()
+			{
+				args.Player.SendErrorMessage("Invalid syntax!");
+				List<string> listOfData = new List<string>() {
+					"/warpplate add <name>",
+					"/warpplate del <name>",
+					"/warpplate info <name>",
+					"/warpplate mod <name> <type> <value> - Type '/warpplate help mod 1' for mod sub-commands."
+					};
+				PaginationTools.Settings settings = new PaginationTools.Settings()
+				{
+					HeaderFormat = "Warpplate Sub-Commands ({0}/{1}):",
+					FooterFormat = $"Type {specifier}warpplate help {{0}} for more sub-commands."
+				};
+
+				if (args.Parameters.Count == 2 && args.Parameters[0].ToLower() == "help" && int.TryParse(args.Parameters[1], out int pageNumber))
+				{
+					PaginationTools.SendPage(args.Player, pageNumber, listOfData, settings);
+					return;
+				}
+				else if (args.Parameters.Count == 3 && args.Parameters[0].ToLower() == "help" && args.Parameters[1].ToLower() == "mod" && int.TryParse(args.Parameters[2], out int pageNumber2))
+				{
+					List<string> listOfData2 = new List<string>()
+					{
+						"/warpplate mod <name> name <new name>",
+						"/warpplate mod <name> size <w,h>",
+						"/warppalte mod <name> delay <delay in seconds>",
+						"/warppalte mod <name> destination <destination warpplate name>"
+					};
+					PaginationTools.Settings settings2 = new PaginationTools.Settings()
+					{
+						HeaderFormat = "Warpplate Mod Sub-Commands ({0}/{1}):",
+						FooterFormat = $"Type {specifier}warpplate help mod {{0}} for more sub-commands."
+					};
+
+					PaginationTools.SendPage(args.Player, pageNumber2, listOfData2, settings2);
+					return;
+				}
+
+				PaginationTools.SendPage(args.Player, 1, listOfData, settings);
+			}
+
+			//Processes warpplate mod commands
+			void processModification()
+			{
+				Warpplate warpplate = Utils.GetWarpplateByName(args.Parameters[1]);
+
+				if (warpplate == null)
+				{
+					args.Player.SendErrorMessage($"No warpplate found by the name {warpplate.Name}!");
+					return;
+				}
+
+				string subcmd = args.Parameters[2].ToLower();
+
+				switch (subcmd)
+				{
+					//warpplate mod <name> dest <new destination>
+					case "dest":
+					case "destination":
+						string destinationWarpplateName = string.Join(" ", args.Parameters.GetRange(3, args.Parameters.Count - 3));
+						if (destinationWarpplateName == "-n")
+						{
+							warpplate.DestinationWarpplate = null;
+							DB.UpdateWarpplate(warpplate, DB.UpdateType.Destination);
+							args.Player.SendSuccessMessage("Removed destination warpplate.");
+							return;
+						}
+						if (Utils.GetWarpplateByName(destinationWarpplateName) == null)
+						{
+							args.Player.SendErrorMessage($"No warpplate found by the name {destinationWarpplateName}!");
+							return;
+						}
+						warpplate.DestinationWarpplate = destinationWarpplateName;
+						DB.UpdateWarpplate(warpplate, DB.UpdateType.Destination);
+						args.Player.SendSuccessMessage($"Set destination warpplate to {destinationWarpplateName}.");
+						break;
+					//warpplate mod <name> delay <delay>
+					case "delay":
+						if (int.TryParse(args.Parameters[3], out int newDelay))
+						{
+							warpplate.Delay = newDelay;
+							DB.UpdateWarpplate(warpplate, DB.UpdateType.Delay);
+							args.Player.SendSuccessMessage($"Updated delay time to {newDelay} for warpplate {warpplate.Name}!");
+						}
+						else
+						{
+							args.Player.SendErrorMessage("Invalid delay value!");
+						}
+						break;
+					//warpplate mod <name> size w,h
+					case "size":
+						string size = args.Parameters[3];
+						if (!size.Contains(",") || size.Split(',').Length != 2)
+						{
+							args.Player.SendErrorMessage("Invalid syntax: {specifier}warpplate mod <name> size w,h");
+							return;
+						}
+						if (int.TryParse(size.Split(',')[0], out int width) && (int.TryParse(size.Split(',')[1], out int height)))
+						{
+							//TODO: Set config for max width/height
+							if (width < 1 || height < 1)
+							{
+								args.Player.SendErrorMessage("Invalid size!");
+								return;
+							}
+							warpplate.Area = new Rectangle(warpplate.Area.X, warpplate.Area.Y, width, height);
+							DB.UpdateWarpplate(warpplate, DB.UpdateType.Size);
+							args.Player.SendSuccessMessage($"Updated size of warpplate {warpplate.Name}!");
+
+						}
+						else
+						{
+							args.Player.SendErrorMessage("Invalid size values!");
+							return;
+						}
+						break;
+					//warpplate mod <name> name <new name>
+					case "name":
+					case "label":
+						string name = string.Join(" ", args.Parameters.GetRange(3, args.Parameters.Count - 3));
+						string oldName = warpplate.Name;
+						warpplate.Name = name;
+						DB.UpdateWarpplate(warpplate, DB.UpdateType.Name, oldName);
+						args.Player.SendSuccessMessage($"Updated name of warpplate to {warpplate.Name}!");
+						break;
+				}
+			}
+		}
+
+		//Runs when /reload is used
+		private static void ReloadWarp(ReloadEventArgs args)
+		{
+			DB.ReloadWarpplates();
+		}
+
+		private static void ToggleWarping(CommandArgs args)
+		{
+			PlayerInfo playerInfo = args.Player.GetData<PlayerInfo>(dataString);
+
+			playerInfo.WarpingEnabled = !playerInfo.WarpingEnabled;
+
+			args.Player.SendSuccessMessage($"Warping via warpplates is now {(playerInfo.WarpingEnabled ? "en" : "dis")}abled.");
+		}
+
+	}
 }
