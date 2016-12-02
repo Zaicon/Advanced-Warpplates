@@ -25,7 +25,7 @@ using MySql.Data.MySqlClient;
 using System.Data;
 using System.Linq;
 
-namespace PluginTemplate
+namespace AdvancedWarpplate
 {
 	public class WarpplateManager
     {
@@ -57,18 +57,18 @@ namespace PluginTemplate
 
         }
 
-        public void ConvertDB()
-        {
-            try
-            {
-                database.Query("UPDATE Warpplates SET WorldID=@0, UserIds='', Delay=4", Main.worldID.ToString());
-                ReloadAllWarpplates();
-            }
-            catch (Exception ex)
-            {
-                TShock.Log.Error(ex.ToString());
-            }
-        }
+        //public void ConvertDB()
+        //{
+        //    try
+        //    {
+        //        database.Query("UPDATE Warpplates SET WorldID=@0, UserIds='', Delay=4", Main.worldID.ToString());
+        //        ReloadAllWarpplates();
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        TShock.Log.Error(ex.ToString());
+        //    }
+        //}
 
         public void ReloadAllWarpplates()
         {
@@ -92,16 +92,15 @@ namespace PluginTemplate
 
                         string[] splitids = mergedids.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
 
-                        Warpplate r = new Warpplate(new Vector2(X1, Y1), new Rectangle(X1, Y1, width, height), name, warpdest, Protected != 0, Main.worldID.ToString(), label);
-                        r.Delay = Delay;
-
-                        try
+						Warpplate r = new Warpplate(new Vector2(X1, Y1), new Rectangle(X1, Y1, width, height), name, warpdest, Protected != 0, Main.worldID.ToString(), label)
+						{
+							Delay = Delay
+						};
+						try
                         {
                             for (int i = 0; i < splitids.Length; i++)
                             {
-                                int id;
-
-                                if (Int32.TryParse(splitids[i], out id)) // if unparsable, it's not an int, so silently skip
+								if (Int32.TryParse(splitids[i], out int id)) // if unparsable, it's not an int, so silently skip
                                     r.AllowedIDs.Add(id);
                                 else
 									TShock.Log.Warn("One of your UserIDs is not a usable integer: " + splitids[i]);
@@ -249,13 +248,13 @@ namespace PluginTemplate
             return MergedIDs.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).ToList();
         }
 
-        public bool removedestination(string WarpplateName)
+        public bool RemoveDestination(string WarpplateName)
         {
             Warpplate r = GetWarpplateByName(WarpplateName);
             if (r != null)
             {
                 int q = database.Query("UPDATE Warpplates SET WarpplateDestination=@0 WHERE WarpplateName=@1 AND WorldID=@2", "", WarpplateName, Main.worldID.ToString());
-                r.WarpDest = "";
+                r.DestinationWarpplate = "";
                 if (q > 0)
                     return true;
             }
@@ -268,7 +267,7 @@ namespace PluginTemplate
             if (r != null)
             {
                 int q = database.Query("UPDATE Warpplates SET WarpplateDestination=@0 WHERE WarpplateName=@1 AND WorldID=@2;", WarpDestination, WarpplateName, Main.worldID.ToString());
-                r.WarpDest = WarpDestination;
+                r.DestinationWarpplate = WarpDestination;
                 if (q > 0)
                     return true;
             }
@@ -317,7 +316,7 @@ namespace PluginTemplate
         public Rectangle Area { get; set; }
         public Vector2 WarpplatePos { get; set; }
         public string Name { get; set; }
-        public string WarpDest { get; set; }
+        public string DestinationWarpplate { get; set; }
         public bool DisableBuild { get; set; }
         public string WorldID { get; set; }
         public List<int> AllowedIDs { get; set; }
@@ -331,7 +330,7 @@ namespace PluginTemplate
             Area = Warpplate;
             Name = name;
             Label = label;
-            WarpDest = warpdest;
+            DestinationWarpplate = warpdest;
             DisableBuild = disablebuild;
             WorldID = WarpplateWorldIDz;
             Delay = 4;
@@ -342,7 +341,7 @@ namespace PluginTemplate
             WarpplatePos = Vector2.Zero;
             Area = Rectangle.Empty;
             Name = string.Empty;
-            WarpDest = string.Empty;
+            DestinationWarpplate = string.Empty;
             DisableBuild = true;
             WorldID = string.Empty;
             AllowedIDs = new List<int>();
@@ -356,5 +355,5 @@ namespace PluginTemplate
             }
             return false;
         }
-    }
+	}
 }
