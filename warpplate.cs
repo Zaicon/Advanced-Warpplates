@@ -3,6 +3,7 @@
  * 
  */
 
+using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -44,6 +45,7 @@ namespace AdvancedWarpplate
 			ServerApi.Hooks.GameInitialize.Register(this, OnInitialize);
 			ServerApi.Hooks.GameUpdate.Register(this, OnUpdate);
 			ServerApi.Hooks.NetGreetPlayer.Register(this, OnGreetPlayer);
+			ServerApi.Hooks.GamePostInitialize.Register(this, OnWorldLoaded);
 			GeneralHooks.ReloadEvent += ReloadWarp;
 		}
 
@@ -54,6 +56,7 @@ namespace AdvancedWarpplate
 				ServerApi.Hooks.GameInitialize.Deregister(this, OnInitialize);
 				ServerApi.Hooks.GameUpdate.Deregister(this, OnUpdate);
 				ServerApi.Hooks.NetGreetPlayer.Deregister(this, OnGreetPlayer);
+				ServerApi.Hooks.GamePostInitialize.Deregister(this, OnWorldLoaded);
 				GeneralHooks.ReloadEvent -= ReloadWarp;
 			}
 
@@ -79,6 +82,11 @@ namespace AdvancedWarpplate
 			Commands.ChatCommands.Add(new Command("warpplate.use", ToggleWarping, "togglewarpplates"));
 		}
 
+		public void OnWorldLoaded(EventArgs args)
+		{
+			DB.ReloadWarpplates();
+		}
+
 		public void OnGreetPlayer(GreetPlayerEventArgs args)
 		{
 			TSPlayer player = TShock.Players[args.Who];
@@ -99,7 +107,7 @@ namespace AdvancedWarpplate
 
 				foreach (TSPlayer player in TShock.Players)
 				{
-					if (player == null || !player.RealPlayer || !player.HasPermission("warpplate.use"))
+					if (player == null || !player.RealPlayer || !player.HasPermission("warpplate.use") || !player.ContainsData(dataString))
 						continue;
 
 					PlayerInfo playerInfo = player.GetData<PlayerInfo>(dataString);
@@ -119,11 +127,26 @@ namespace AdvancedWarpplate
 					//If player is not near a warpplate, ignore this player
 					Warpplate fromWarpPlate = Utils.GetNearbyWarpplates(player.TileX, player.TileY);
 					if (fromWarpPlate == null)
+					{
+						if (playerInfo.TimeStandingOnWarp > 0)
+						{
+							playerInfo.TimeStandingOnWarp = 0;
+							player.SetData(dataString, playerInfo);
+						}
 						continue;
+					}
+
 
 					//If player is near a warpplate but that warpplate has no destination, ignore this player
 					if (string.IsNullOrEmpty(fromWarpPlate.DestinationWarpplate))
+					{
+						if (playerInfo.TimeStandingOnWarp > 0)
+						{
+							playerInfo.TimeStandingOnWarp = 0;
+							player.SetData(dataString, playerInfo);
+						}
 						continue;
+					}
 
 					Warpplate toWarpPlate = Utils.GetWarpplateByName(fromWarpPlate.DestinationWarpplate);
 
@@ -131,6 +154,7 @@ namespace AdvancedWarpplate
 					if ((fromWarpPlate.Delay - playerInfo.TimeStandingOnWarp) > 0)
 					{
 						playerInfo.TimeStandingOnWarp++;
+						player.SendWarningMessage($"You will be warped to '{toWarpPlate.Name}' in {(fromWarpPlate.Delay - playerInfo.TimeStandingOnWarp) + 1} seconds!");
 						player.SetData(dataString, playerInfo);
 						continue;
 					}
@@ -152,7 +176,7 @@ namespace AdvancedWarpplate
 		{
 			TSPlayer player = args.Player;
 
-			if (args.Parameters.Count < 1 || args.Parameters.Count > 3)
+			if (args.Parameters.Count < 1 || args.Parameters.Count > 4)
 			{
 				sendInvalidSyntaxError();
 				return;
@@ -225,7 +249,7 @@ namespace AdvancedWarpplate
 					}
 					args.Player.SendInfoMessage($"Warpplate Name: {warpplateInfo.Name} ({warpplateInfo.Area.X}, {warpplateInfo.Area.Y})");
 					args.Player.SendInfoMessage($"Destination Warpplate Name: {warpplateInfo.DestinationWarpplate}");
-					args.Player.SendInfoMessage($"Delay: {warpplateInfo.Delay} | Width: {warpplateInfo.Area.Width} | Height: {warpplateInfo.Area}");
+					args.Player.SendInfoMessage($"Delay: {warpplateInfo.Delay} | Width: {warpplateInfo.Area.Width} | Height: {warpplateInfo.Area.Height}");
 					break;
 				default:
 					sendInvalidSyntaxError();
@@ -293,7 +317,7 @@ namespace AdvancedWarpplate
 					//warpplate mod <name> dest <new destination>
 					case "dest":
 					case "destination":
-						string destinationWarpplateName = string.Join(" ", args.Parameters.GetRange(3, args.Parameters.Count - 3));
+						string destinationWarpplateName = string.Join(" ", args.Parameters[3]);
 						if (destinationWarpplateName == "-n")
 						{
 							warpplate.DestinationWarpplate = null;
