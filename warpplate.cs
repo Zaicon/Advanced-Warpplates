@@ -14,7 +14,7 @@ using TShockAPI.Hooks;
 
 namespace AdvancedWarpplate
 {
-	[ApiVersion(1, 26)]
+	[ApiVersion(2,0)]
 	public class WarpplatePlugin : TerrariaPlugin
 	{
 		#region Plugin Information
