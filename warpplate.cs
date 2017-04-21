@@ -14,7 +14,7 @@ using TShockAPI.Hooks;
 
 namespace AdvancedWarpplate
 {
-	[ApiVersion(2,0)]
+	[ApiVersion(2,1)]
 	public class WarpplatePlugin : TerrariaPlugin
 	{
 		#region Plugin Information
@@ -174,6 +174,7 @@ namespace AdvancedWarpplate
 
 		private void WarpplateCommands(CommandArgs args)
 		{
+			string specifier = args.Silent ? TShock.Config.CommandSilentSpecifier : TShock.Config.CommandSpecifier;
 			TSPlayer player = args.Player;
 
 			if (args.Parameters.Count < 1 || args.Parameters.Count > 4)
@@ -183,7 +184,6 @@ namespace AdvancedWarpplate
 			}
 
 			string baseCmd = args.Parameters[0].ToLower();
-			string specifier = args.Silent ? TShock.Config.CommandSilentSpecifier : TShock.Config.CommandSpecifier;
 
 			switch (baseCmd)
 			{
